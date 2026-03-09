@@ -1,5 +1,5 @@
 
-        const gridContainer = document.getElementById('gridContainer');
+       const gridContainer = document.getElementById('gridContainer');
 
         for (let i = 0; i < 30; i++) {
             const line = document.createElement('div');
@@ -78,3 +78,49 @@
         alert(data.error);
     }
 });
+// Initialize Google once when page loads
+window.onload = function(){
+
+    google.accounts.id.initialize({
+        client_id: "1023042512555-glcglt2t9ep0jmg21mrv505g488ho62h.apps.googleusercontent.com",
+        callback: handleGoogleResponse
+    });
+
+};
+
+// When user clicks Google button
+document.getElementById("googleLogin")
+.addEventListener("click", () => {
+
+    google.accounts.id.prompt();
+
+});
+
+
+async function handleGoogleResponse(response){
+
+    const token = response.credential;
+
+    const res = await fetch(
+        "http://127.0.0.1:5000/google-login",
+        {
+            method:"POST",
+            headers:{
+                "Content-Type":"application/json"
+            },
+            body:JSON.stringify({token})
+        }
+    );
+
+    const data = await res.json();
+
+    if(res.ok){
+
+        localStorage.setItem("token",data.token);
+
+        window.location.href="../user_data.html";
+
+    }else{
+        alert("Google login failed");
+    }
+}

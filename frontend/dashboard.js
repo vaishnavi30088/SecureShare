@@ -51,8 +51,13 @@ async function loadFiles() {
         <td>${sizeKB} KB</td>
         <td>${new Date(file.uploaded_at).toLocaleString()}</td>
         <td>
-            <button onclick="downloadFile('${file.id}')">
+            <button onclick="startDownload('${file.id}', this)">
                 Download
+            </button>
+
+            <button onclick="generateShareLink('${file.id}')"
+                style="color:blue;">
+                Share
             </button>
 
             <button onclick="deleteFile('${file.id}')"
@@ -62,6 +67,36 @@ async function loadFiles() {
         </td>
     </tr>`;
 });
+}
+function startDownload(fileId, button){
+
+    let time = 3;
+
+    button.disabled = true;
+    button.innerText = "Preparing " + time;
+
+    const timer = setInterval(()=>{
+
+        time--;
+
+        if(time > 0){
+            button.innerText = "Preparing " + time;
+        }else{
+
+            clearInterval(timer);
+
+            button.innerText = "Downloading...";
+
+            downloadFile(fileId);
+
+            setTimeout(()=>{
+                button.innerText = "Download";
+                button.disabled = false;
+            },2000);
+        }
+
+    },1000);
+
 }
 async function downloadFile(fileId){
 
@@ -140,7 +175,46 @@ async function deleteFile(fileId){
         alert(data.error);
     }
 }
+async function generateShareLink(fileId){
 
+    const hours = prompt(
+        "Enter link validity in hours (example: 1, 24, 48):",
+        "24"
+    );
+
+    if(!hours) return;
+
+    const token = localStorage.getItem("token");
+
+    const res = await fetch(
+        `http://127.0.0.1:5000/generate-share-link/${fileId}`,
+        {
+            method:"POST",
+            headers:{
+                "Content-Type":"application/json",
+                "Authorization":"Bearer " + token
+            },
+            body: JSON.stringify({
+                expiry_hours: hours
+            })
+        }
+    );
+
+    const data = await res.json();
+
+    if(res.ok){
+
+        await navigator.clipboard.writeText(data.share_link);
+
+        alert(
+            "Share link copied to clipboard\n\n" +
+            data.share_link
+        );
+
+    }else{
+        alert(data.error);
+    }
+}
 loadFiles();
 
 function logout() {

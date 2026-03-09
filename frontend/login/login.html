@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css"
         integrity="sha512-2SwdPD6INVrV/lHTZbO2nodKhrnDdJK9/kg2XD1r9uGqPo1cUbujc+IYdlYdEErWNu69gVcYgdxlmVmzTWnetw=="
         crossorigin="anonymous" referrerpolicy="no-referrer" />
+    
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <link rel="stylesheet" href="login.css">
 </head>
 
@@ -61,7 +63,7 @@
         </div>
 
         <div class="social-grid">
-            <button class="social-button" title="Google Auth">
+            <button class="social-button" id="googleLogin">
                 <i class="fa-brands fa-google"></i>
             </button>
             <button class="social-button" title="GitHub Auth">
@@ -78,5 +80,6 @@
     </div>
 
     <script src="login.js"></script>
+    
 </body>
 </html>

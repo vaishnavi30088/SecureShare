@@ -1,7 +1,9 @@
-from flask import Blueprint, request, jsonify
+from services.malware_service import scan_file
+from flask import Blueprint, request, jsonify,redirect
 import os
 import uuid
 import psycopg2
+import boto3
 from config import DB_URL
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
@@ -14,7 +16,6 @@ from flask import send_file
 import io
 from services.s3_services import download_file_from_s3
 from services.encryption_service import decrypt_file
-
 
 files = Blueprint("files", __name__)
 
@@ -62,10 +63,12 @@ def upload_file_s3_route():  # changed function name to avoid conflict
 @files.route("/upload_s3", methods=["POST"])
 @jwt_required()
 def upload_file_s3_route():
+
     if "file" not in request.files:
         return jsonify({"error": "No file part"}), 400
 
     file = request.files["file"]
+
     if file.filename == "":
         return jsonify({"error": "No file selected"}), 400
 
@@ -74,6 +77,20 @@ def upload_file_s3_route():
     # Read file bytes
     file_bytes = file.read()
     file_size = len(file_bytes)
+
+    # ---------------- MALWARE SCAN ----------------
+    infected = scan_file(file_bytes)
+
+    if infected:
+        return jsonify({
+            "error": "Malware detected. Upload blocked."
+        }), 400
+
+    # File is safe
+    print("File scan completed: No malware detected")
+
+    # ----------------------------------------------
+
     # Encrypt file
     encrypted_data = encrypt_file(file_bytes)
 
@@ -92,8 +109,8 @@ def upload_file_s3_route():
     cur = conn.cursor()
 
     cur.execute("""
-    INSERT INTO files (id, filename, s3_key, uploaded_by, file_size)
-    VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO files (id, filename, s3_key, uploaded_by, file_size)
+        VALUES (%s, %s, %s, %s, %s)
     """, (file_id, file.filename, s3_key, user_id, file_size))
 
     conn.commit()
@@ -104,23 +121,21 @@ def upload_file_s3_route():
     log_event(user_id, file_id, "UPLOAD")
 
     return jsonify({
-        "message": "Encrypted file uploaded successfully",
+        "message": "No malware detected. File uploaded successfully",
         "file_id": file_id
     })
-
-
+from flask import Response
 # S3 download route (SECURE VERSION)
+
 @files.route("/download/<file_id>", methods=["GET"])
 @jwt_required()
 def download_file_s3(file_id):
 
     user_id = get_jwt_identity()
 
-    # Connect to DB
     conn = psycopg2.connect(DB_URL)
     cur = conn.cursor()
 
-    # Get file metadata
     cur.execute("""
         SELECT filename, s3_key, uploaded_by
         FROM files
@@ -136,25 +151,23 @@ def download_file_s3(file_id):
 
     filename, s3_key, uploaded_by = file_record
 
-    # Authorization check (only owner can download)
     if str(uploaded_by) != str(user_id):
         cur.close()
         conn.close()
-        return jsonify({"error": "Unauthorized access"}), 403
+        return jsonify({"error": "Unauthorized"}), 403
 
     cur.close()
     conn.close()
 
-    # Download encrypted file from S3
+    # download encrypted file from S3
     encrypted_data = download_file_from_s3(s3_key)
 
-    # Decrypt file
+    # decrypt
     decrypted_data = decrypt_file(encrypted_data)
 
-    # Log audit event
+    # log event
     log_event(user_id, file_id, "DOWNLOAD")
 
-    # Send file to user
     return send_file(
         io.BytesIO(decrypted_data),
         download_name=filename,
@@ -267,3 +280,141 @@ def delete_file(file_id):
     conn.close()
 
     return jsonify({"message": "File deleted successfully"})
+import uuid
+from flask_jwt_extended import jwt_required, get_jwt_identity
+
+from datetime import datetime, timedelta
+
+@files.route("/generate-share-link/<file_id>", methods=["POST"])
+@jwt_required()
+def generate_share_link(file_id):
+
+    user_id = get_jwt_identity()
+
+    data = request.json
+    hours = float(data.get("expiry_hours", 24))
+
+    token = str(uuid.uuid4())
+
+    expiry_time = datetime.utcnow() + timedelta(hours=hours)
+
+    conn = psycopg2.connect(DB_URL)
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO shared_links (file_id, token, created_by, expires_at)
+        VALUES (%s,%s,%s,%s)
+    """, (file_id, token, user_id, expiry_time))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    link = f"http://127.0.0.1:5500/frontend/share.html?token={token}"
+
+    return jsonify({
+        "share_link": link,
+        "expires_at": expiry_time
+    })
+@files.route("/shared-file/<token>", methods=["GET"])
+def access_shared_file(token):
+
+    conn = psycopg2.connect(DB_URL)
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT f.id, f.filename, f.s3_key, s.expires_at
+        FROM shared_links s
+        JOIN files f ON s.file_id = f.id
+        WHERE s.token = %s
+    """, (token,))
+
+    file = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if not file:
+        return jsonify({"error": "Invalid link"}), 404
+
+    file_id, filename, s3_key, expires_at = file
+
+    if expires_at and datetime.utcnow() > expires_at:
+        return jsonify({"error": "Link expired"}), 403
+
+    return jsonify({
+        "file_id": str(file_id),
+        "file_name": filename
+    })
+from flask_jwt_extended import jwt_required
+
+@files.route("/secure-download/<file_id>", methods=["GET"])
+@jwt_required()
+def secure_download(file_id):
+
+    conn = psycopg2.connect(DB_URL)
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT filename, s3_key
+        FROM files
+        WHERE id = %s
+    """, (file_id,))
+
+    file = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if not file:
+        return jsonify({"error": "File not found"}), 404
+
+    filename, s3_key = file
+
+    encrypted_data = download_file_from_s3(s3_key)
+    decrypted_data = decrypt_file(encrypted_data)
+
+    return send_file(
+        io.BytesIO(decrypted_data),
+        download_name=filename,
+        as_attachment=True
+    )
+import io
+import mimetypes
+from flask import send_file
+
+import mimetypes
+
+@files.route("/preview/<file_id>", methods=["GET"])
+def preview_file(file_id):
+
+    conn = psycopg2.connect(DB_URL)
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT filename, s3_key
+        FROM files
+        WHERE id = %s
+    """, (file_id,))
+
+    file = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if not file:
+        return jsonify({"error": "File not found"}), 404
+
+    filename, s3_key = file
+
+    encrypted_data = download_file_from_s3(s3_key)
+    decrypted_data = decrypt_file(encrypted_data)
+
+    mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+    return send_file(
+        io.BytesIO(decrypted_data),
+        mimetype=mime_type,
+        download_name=filename,
+        as_attachment=False
+    )
