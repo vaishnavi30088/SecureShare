@@ -1,4 +1,4 @@
-from services.malware_service import scan_file
+
 from flask import Blueprint, request, jsonify,redirect
 import os
 import uuid
@@ -77,19 +77,6 @@ def upload_file_s3_route():
     # Read file bytes
     file_bytes = file.read()
     file_size = len(file_bytes)
-
-    # ---------------- MALWARE SCAN ----------------
-    infected = scan_file(file_bytes)
-
-    if infected:
-        return jsonify({
-            "error": "Malware detected. Upload blocked."
-        }), 400
-
-    # File is safe
-    print("File scan completed: No malware detected")
-
-    # ----------------------------------------------
 
     # Encrypt file
     encrypted_data = encrypt_file(file_bytes)
