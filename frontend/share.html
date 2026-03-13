@@ -80,7 +80,7 @@ let fileId = null;
 async function loadFile(){
 
 const res = await fetch(
-`http://127.0.0.1:5000/shared-file/${token}`
+`https://secure-file-sharing-4k5x.onrender.com/shared-file/${token}`
 );
 
 const data = await res.json();
@@ -103,7 +103,7 @@ document.body.innerHTML =
 function openPreview(){
 
 window.open(
-`http://127.0.0.1:5000/preview/${fileId}`,
+`https://secure-file-sharing-4k5x.onrender.com/preview/${fileId}`,
 "_blank"
 );
 
@@ -123,7 +123,7 @@ async function loginDownload(){
     }
 
     const response = await fetch(
-        `http://127.0.0.1:5000/secure-download/${fileId}`,
+        `https://secure-file-sharing-4k5x.onrender.com/secure-download/${fileId}`,
         {
             headers:{
                 "Authorization":"Bearer " + token
