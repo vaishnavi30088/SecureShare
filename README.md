@@ -23,6 +23,7 @@ The system uses modern backend technologies and cloud storage to ensure scalabil
 • Activity tracking using audit logs
 
 ###Technology Stack
+
 ##Backend
 
 Flask (Python Web Framework)
